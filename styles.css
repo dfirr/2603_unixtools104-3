@@ -1,0 +1,48 @@
+.reveal code.sourceCode {
+  font-size: 1.25em;  
+}
+
+.reveal pre.sourceCode code {
+  font-size: 1.25em;
+}
+
+.reveal .cell-output-stdout {
+  font-size: 1.25em;
+}
+
+.reveal section pre > code:not(.sourceCode) {
+  font-size: 1.25em;
+}
+
+.reveal section pre > code { white-space: pre-wrap }
+
+.reveal h3 {
+  color: #107895;
+  font-style: normal; 
+  font-weight: lighter;
+  font-size: 1em;
+  border-left: 0.3em solid #107895; /* 左に縦棒 */
+  padding-left: 0.5em;    /* テキストと縦棒の間隔 */
+}
+
+#title-slide .subtitle {
+    color: #107895;
+    font-style: normal;
+    margin-top: 0em;
+    font-weight: lighter;
+}
+
+.reveal .quarto-title-block .quarto-title-authors .quarto-title-author {
+    padding-left: .5em;
+    padding-right: .5em;
+    font-weight: lighter;
+}
+
+.callout-question {
+  border-left: 4px solid #d17a00; 
+  background-color: #fff8e5;
+}
+
+#add-margintop {
+  margin-top: 1em;
+}

@@ -1,0 +1,326 @@
+---
+title: Unix Tools 104 -- \#3 nmap, hping3
+subtitle: パケット操作で学ぶ<br>ネットワークスキャンと低レイヤー実験の基礎
+author: Shintaro Watanabe
+date: 2026-03-09
+lang: ja
+format:
+  clean-revealjs:
+    slide-number: c/t
+    css: styles.css
+revealjs-plugins:
+  - quarto-revealjs-budoux
+---
+
+## はじめに
+- インターネット関連プロトコルを理解する重要性が高まっている。
+  - 仮想化の普及で、インフラ屋だけでなくアプリ屋にも。
+
+![出典: [MDN Web Docs – HTTP Layers](https://developer.mozilla.org/ja/docs/Web/HTTP/Guides/Overview/http-layers.svg), CC-BY-SA 2.5](https://developer.mozilla.org/ja/docs/Web/HTTP/Guides/Overview/http-layers.svg){fig-align="center"}
+
+## この授業の目的
+- プロトコルを文書だけで理解するのは退屈。
+- Excelの手順書だけを頼りにツールを使うのは危うい。
+  - 「新しい」Unixツールの実践を通じ、プロトコルを理解する。
+- 今回は、観察するだけでなく、意図を持ってパケットを送る。
+
+![](venn.svg){fig-align="center"}
+
+## 日程と時間帯
+- 全4回で、計8つのツールを学習する。日程は次の通り。
+
+| 日付 | 時間 | ツール | 学習事項 |
+|------|------|--------|----------|
+| 2025-10-10 | 18:00 - 19:00 | curl, jq | HTTPとJSON |
+| 2026-01-16 | 18:00 - 19:00 | tcpdump, netcat | TCP/IP |
+| 2026-03-09 | 18:00 - 19:00 | nmap, hping3 | パケット操作 |
+| 2026-xx-xx | 18:00 - 19:00 | openssl, mitmproxy | TLSと認証機構 |
+
+- 前半30分間を授業、後半30分間を演習とする。
+- 自習可能な[演習教材](https://dfirr.github.io/2509_unixtools104ex/03-nmap_hping.html)を準備した。
+
+## 注意事項
+- 何事も、たった1時間で上達することは不可能。
+- 授業と演習とを自己研鑽のキッカケにしてください。
+- スキャン先は、必ず演習用Dockerラボに限定すること。
+
+> 聞かざるは之に聞くに若かず、之を聞くは之を見るに若かず、<br>
+> 之を見るは之を知るに若かず、之を知るは之を行うに若かず。<br>
+> 學は之を行うに至りて止む。
+
+— 『荀子』儒效篇第八
+
+# パケット操作
+## この回の位置づけ
+- Ch.1では、HTTPというアプリケーション層のプロトコルを学んだ。
+- Ch.2では、TCP/IPスタックと`tcpdump`による観察を学んだ。
+- Ch.3では、こちらから意図を持ってパケットを送る。
+
+```{mermaid}
+flowchart LR
+  A[Ch.1<br>HTTPを理解する] --> B[Ch.2<br>tcpdumpで観察する]
+  B --> C[Ch.3<br>nmapとhping3で送る]
+```
+
+## なぜパケット操作を学ぶのか
+- アプリ開発でも、通信経路やアクセス制御が原因の障害は珍しくない。
+- 企業ネットワークでは、ICMP、TCP、HTTPの各段階で制御が入る。
+- そのため、「どの層で止まっているのか」を切り分ける必要がある。
+
+### 切り分けの例
+- ホスト自体は生きているのか。
+- 特定のポートは開いているのか。
+- そのポートの先で、どのサービスが動いているのか。
+- 返ってくるTCPフラグは、SYN/ACKか、RSTか、あるいは無応答か。
+
+## 今回の2つの道具
+- `nmap`
+  - ネットワーク探索とポートスキャンを自動化する道具
+  - 「何を知りたいか」を指定する
+- `hping3`
+  - 任意のパケットを自分で作って送る道具
+  - 「どんなパケットを送るか」を指定する
+
+# nmap
+## nmapの全体像
+- `nmap`は、ネットワーク調査ツールである。
+- 代表的な仕事は次の通り。
+  - ホスト発見
+  - ポートスキャン
+  - 状態判定
+  - サービス/バージョン推定
+  - OS推定
+  - スクリプトによる追加調査
+  - 結果の保存
+
+## ホスト発見
+- まず、「そこにホストがいるか」を調べる。
+
+``` {.bash code-line-numbers="false"}
+nmap -sn 10.250.250.0/24
+```
+
+- `-sn`は、ポートスキャンを行わず、ホスト発見だけを行う。
+- これはPing Scanと呼ばれるが、ICMP Echo Requestだけを送るとは限らない。
+
+## `ping`との違い
+- `ping`は、通常ICMP Echo Request / Echo Replyを使う。
+- 一方、`nmap -sn`は状況に応じて複数の手法を使う。
+  - 同一セグメントのIPv4ではARPが優先される。
+  - それ以外ではICMPやTCPプローブが使われる。
+- 同じ「死活確認」でも、送っているパケットは同じではない。
+
+## rootとnon-root
+- `nmap`は実行権限によって挙動が変わる。
+- rootで実行すると、raw packetを使ったスキャンができる。
+- non-rootでは制約が大きく、`connect()`ベースの手法に寄る。
+- 実運用では、この違いを意識しないと結果を読み違える。
+
+## ポートスキャン
+- ホストが見つかったら、どのポートが開いているかを見る。
+
+``` {.bash code-line-numbers="false"}
+nmap -p 80 target-web
+```
+
+``` {.bash code-line-numbers="false"}
+PORT   STATE SERVICE
+80/tcp open  http
+```
+
+- `open`: 対象ポートで待ち受けしているプロセスがある
+- `closed`: 対象ホストには到達できるが、待ち受けはない
+- `filtered`: 応答が返ってこないため、openかclosedかを判定できない
+
+## デフォルトでは何ポート見るのか
+- `nmap target-web`のようにポートを指定しない場合、全65535ポートを調べるわけではない。
+- デフォルトでは、使用頻度の高い1000個のTCPポートが対象になる。
+- したがって、非標準ポートのサービスは見落とすことがある。
+
+## `-sS`と`-sT`
+- rootでのデフォルトは`-sS`。
+  - SYNを送り、接続確立前の応答を見る。
+- non-rootでのデフォルトは`-sT`。
+  - OSの通常ソケットAPIで接続する。
+
+## なぜ`-sS`が好まれるのか
+- `-sT`は完全なTCP接続を張る。
+- `-sS`は、接続確立前の応答だけを見て判定する。
+- そのため、`-sS`はスキャン用途に向いている。
+  - より効率的
+  - 接続確立前の段階で状態を見られる
+
+## `-sA`で何が分かるか
+- `-sA`はACK scanである。
+- これは「開いているか」を見るスキャンではない。
+- 主に、フィルタリングの有無を見る。
+- 結果として出てくる代表例:
+  - `unfiltered`
+  - `filtered`
+
+## `-Pn`はいつ使うか
+- 通常、`nmap`はホスト発見を先に行う。
+- その段階で応答がなければ、ポートスキャンに進まないことがある。
+- `-Pn`は、「ホストは起動しているもの」と仮定して調査を続けるオプション。
+- 例えば、非標準ポートだけでサービスが動いている場合に重要になる。
+
+## `-sV`と`-O`
+- `-sV`
+  - サービスやバージョンを推定する
+- `-O`
+  - TCP/IP応答の特徴からOSを推定する
+
+``` {.bash code-line-numbers="false"}
+nmap -sV -p 18000 target-web
+```
+
+- `SERVICE`列は、まずポート番号にもとづく推定である。
+- `-sV`を付けると、実際の応答内容からより正確に推定する。
+
+## スクリプトスキャン
+- `--script`を使うと、ポートやサービスの先にあるアプリケーション層を追加調査できる。
+- 今回はHTTP系を扱う。
+
+``` {.bash code-line-numbers="false"}
+nmap -p 80 --script http-title,http-headers,http-server-header target-web
+```
+
+- `http-title`: タイトルを見る
+- `http-headers`: レスポンスヘッダーを見る
+- `http-server-header`: `Server`ヘッダーを見る
+- `http-enum`: よく使われる公開パスを列挙する
+- `http-auth`: 認証方式を調べる
+
+## 結果の保存
+- `nmap`の結果は後で見返せるように保存できる。
+
+``` {.bash code-line-numbers="false"}
+nmap -sV -p 80 target-web -oN result.txt
+```
+
+``` {.bash code-line-numbers="false"}
+nmap -sV -p 80 target-web -oA result
+```
+
+- `-oN`: 通常のテキスト形式
+- `-oA`: `.nmap`, `.xml`, `.gnmap` をまとめて出力
+
+# hping3
+## hping3の全体像
+- `hping3`は、任意のパケットを自分で組み立てて送る道具である。
+- `nmap`が「調査目的」を指定するツールだとすれば、`hping3`は「送信内容」を指定するツールである。
+- 触れる主な項目:
+  - TCP
+  - UDP
+  - ICMP
+  - 送信元IP
+  - 送信元/宛先ポート
+  - TTL
+  - フラグ
+
+## TCPフラグを操作する
+- 代表的なフラグ:
+  - `SYN`
+  - `ACK`
+  - `FIN`
+  - `RST`
+- これらを個別に送ることで、相手の実装や状態を直接観察できる。
+
+## SYNを送る
+``` {.bash code-line-numbers="false"}
+hping3 -S -p 80 -c 3 target-web
+```
+
+- `-S`: SYNフラグ
+- `-p`: 宛先ポート
+- `-c`: 送信回数
+- ポートが開いていれば、通常SYN/ACKが返る。
+
+## ACKやFINを送る
+``` {.bash code-line-numbers="false"}
+hping3 -A -p 80 -c 3 target-web
+```
+
+``` {.bash code-line-numbers="false"}
+hping3 -F -p 80 -c 3 target-web
+```
+
+- 既存接続が無い状態でACKだけを送ると、通常はRSTが返る。
+- FINだけを送っても、今回のような環境ではRSTが返ることが多い。
+
+## TCP以外にも使える
+- ICMPモード
+
+``` {.bash code-line-numbers="false"}
+hping3 -1 target-web
+```
+
+- UDPモード
+
+``` {.bash code-line-numbers="false"}
+hping3 -2 -p 53 target-web
+```
+
+- `hping3`はTCP専用ツールではない。
+- プロトコルを切り替えながら疎通確認や挙動確認ができる。
+
+## 送信元や周辺情報も変えられる
+- 送信元ポート
+
+``` {.bash code-line-numbers="false"}
+hping3 -S -s 40000 -p 80 target-web
+```
+
+- 送信元IPの偽装
+
+``` {.bash code-line-numbers="false"}
+hping3 -a 192.0.2.123 -S -p 80 target-web
+```
+
+- TTLの変更
+
+``` {.bash code-line-numbers="false"}
+hping3 -S -t 5 -p 80 target-web
+```
+
+- ただし、送信元IPを偽装すると返答はその偽装先へ返るため、通常は自分で応答観察できない。
+
+## `tcpdump`と併用する
+- `hping3`だけでも応答は分かる。
+- しかし、理解が深まるのは`tcpdump`と並べたときである。
+- 見るべきもの:
+  - こちらが送ったフラグ
+  - 相手が返したフラグ
+  - `S`, `S.`, `R` の対応関係
+
+## 実務上のイメージ
+- ICMP Echo Requestが社内で止められていることは珍しくない。
+- それでも、`443/tcp`へSYNを送れば、疎通確認できる場面がある。
+- つまり、`hping3`は教材用の道具ではなく、調査の引き出しでもある。
+
+# 演習との接続
+## 今回の演習で扱う範囲
+- 講義では、`nmap`と`hping3`の全体像を見た。
+- 演習では、そのうち主要なものを実際に確かめる。
+- 特に扱うのは次の範囲である。
+  - `-sn`とARP
+  - `-sS`, `-sT`, `-sA`
+  - `-sV`, `--script`
+  - `http-enum`, `http-auth`
+  - `hping3`のSYN/ACK/FIN
+  - `tcpdump`との対応
+
+## 演習ラボ
+- スキャン先は外部ネットワークではない。
+- Dockerの閉じたネットワークで実験する。
+- 主な登場人物:
+  - `scanner`: `nmap`, `hping3`, `tcpdump`, `curl`, `nc`
+  - `target-web`: HTTP応答あり
+  - `target-closed`: 待ち受けなし
+
+# まとめ
+## 今日のまとめ
+- Ch.3では、観察から操作へ進んだ。
+- `nmap`は、ホスト発見からアプリケーション調査までを自動化する道具である。
+- `hping3`は、パケットそのものを自分で作って送る道具である。
+- この2つを使うことで、ネットワーク障害の切り分け方が一段深くなる。
