@@ -200,7 +200,7 @@
 
 <section id="title-slide" class="quarto-title-block center">
   <h1 class="title">Unix Tools 104 – #3 nmap, hping3</h1>
-  <p class="subtitle">パケット操作で学ぶ<br>ネットワークスキャンと低レイヤー実験の基礎</p>
+  <p class="subtitle">阿部寛のホームページで学ぶ<br>インターネット関連プロトコルとツールの初歩</p>
 
 <div class="quarto-title-authors">
 <div class="quarto-title-author">
@@ -210,7 +210,7 @@ Shintaro Watanabe
 </div>
 </div>
 
-  <p class="date">2026年3月9日</p>
+  <p class="date">2026年3月6日</p>
 </section>
 <section id="はじめに" class="slide level2">
 <h2>はじめに</h2>
@@ -268,7 +268,7 @@ Shintaro Watanabe
 <td>パケット操作</td>
 </tr>
 <tr class="even">
-<td>2026-xx-xx</td>
+<td>2026-04-17</td>
 <td>18:00 - 19:00</td>
 <td>openssl, mitmproxy</td>
 <td>TLSと認証機構</td>
@@ -301,48 +301,42 @@ Shintaro Watanabe
 <h2>この回の位置づけ</h2>
 <ul>
 <li>Ch.1では、HTTPというアプリケーション層のプロトコルを学んだ。</li>
-<li>Ch.2では、TCP/IPスタックと<code>tcpdump</code>による観察を学んだ。</li>
-<li>Ch.3では、こちらから意図を持ってパケットを送る。</li>
+<li>Ch.2では、TCP/IPスタックと<code>tcpdump</code>によるパケットの観測を学んだ。</li>
+<li>Ch.3では、こちらから意図を持ってパケットを送る。
+<ul>
+<li>3ウェイハンドシェイク（SYN, SYN/ACK, ACK）を無視して、いきなりACKフラグを投げる</li>
+<li>送信元IPアドレスを偽装する</li>
+</ul></li>
+<li>こうしたパケット操作は、通常のアプリと権限では実行できない。</li>
 </ul>
-<div class="cell" data-reveal="true" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class=""><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart LR
-  A[Ch.1&lt;br&gt;HTTPを理解する] --&gt; B[Ch.2&lt;br&gt;tcpdumpで観察する]
-  B --&gt; C[Ch.3&lt;br&gt;nmapとhping3で送る]
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
 </section>
 <section id="なぜパケット操作を学ぶのか" class="slide level2">
 <h2>なぜパケット操作を学ぶのか</h2>
 <ul>
-<li>アプリ開発でも、通信経路やアクセス制御が原因の障害は珍しくない。</li>
-<li>企業ネットワークでは、ICMP、TCP、HTTPの各段階で制御が入る。</li>
+<li>通信経路やアクセス制御が原因のトラブルは珍しくない。</li>
+<li>企業ネットワークでは、IP、TCP、HTTPの各段階で制御が入る。</li>
 <li>そのため、「どの層で止まっているのか」を切り分ける必要がある。</li>
 </ul>
 <h3 id="切り分けの例">切り分けの例</h3>
 <ul>
 <li>ホスト自体は生きているのか。</li>
 <li>特定のポートは開いているのか。</li>
-<li>そのポートの先で、どのサービスが動いているのか。</li>
+<li>そのポートでは、どんなサービスが動いているのか。
+<ul>
+<li>443/tcpがいつもHTTPSとは限らない。</li>
+</ul></li>
 <li>返ってくるTCPフラグは、SYN/ACKか、RSTか、あるいは無応答か。</li>
 </ul>
 </section>
-<section id="今回の2つの道具" class="slide level2">
-<h2>今回の2つの道具</h2>
+<section id="つの道具" class="slide level2">
+<h2>2つの道具</h2>
 <ul>
-<li><code>nmap</code>
+<li>nmap
 <ul>
 <li>ネットワーク探索とポートスキャンを自動化する道具</li>
 <li>「何を知りたいか」を指定する</li>
 </ul></li>
-<li><code>hping3</code>
+<li>hping3
 <ul>
 <li>任意のパケットを自分で作って送る道具</li>
 <li>「どんなパケットを送るか」を指定する</li>
@@ -354,52 +348,73 @@ Shintaro Watanabe
 <h1>nmap</h1>
 
 </section>
-<section id="nmapの全体像" class="slide level2">
-<h2>nmapの全体像</h2>
+<section id="nmapとは" class="slide level2">
+<h2>nmapとは</h2>
 <ul>
-<li><code>nmap</code>は、ネットワーク調査ツールである。</li>
-<li>代表的な仕事は次の通り。
+<li><code>nmap</code>は、ネットワーク調査ツールである。
 <ul>
-<li>ホスト発見</li>
+<li>ネットワーク上のホスト発見（死活確認）</li>
 <li>ポートスキャン</li>
-<li>状態判定</li>
-<li>サービス/バージョン推定</li>
-<li>OS推定</li>
+<li>サービス/バージョン/OS推定</li>
 <li>スクリプトによる追加調査</li>
-<li>結果の保存</li>
+<li>その他たくさん</li>
+</ul></li>
+<li>おびただしい数のオプション（<code>man nmap</code>で確認）がある。
+<ul>
+<li>今回は、ごく一部を取り上げる。</li>
+</ul></li>
+</ul>
+</section>
+<section id="検証環境" class="slide level2">
+<h2>検証環境</h2>
+<ul>
+<li>ポートスキャンは相手の許可を得て行う必要がある。</li>
+<li>社内LANからnmapを実行するとアラートが発報されることもある。</li>
+<li>演習用Dockerイメージを用意した。
+<ul>
+<li>WSLにgitとDockerとを入れて実行する。</li>
+<li>スキャン対象ネットワーク: <code>10.250.250.0/24</code></li>
 </ul></li>
 </ul>
 </section>
 <section id="ホスト発見" class="slide level2">
 <h2>ホスト発見</h2>
 <ul>
-<li>まず、「そこにホストがいるか」を調べる。</li>
+<li>特定のサブネットでホストが起動しているか？</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-sn</span> 10.250.250.0/24</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-sn</span> 10.250.250.0/24</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Starting</span> Nmap 7.94SVN <span class="er">(</span> <span class="ex">https://nmap.org</span> <span class="kw">)</span> <span class="ex">at</span> 2026-03-04 14:12 UTC</span>
+<span id="cb2-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> scan report for 10.250.250.1</span>
+<span id="cb2-3"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host</span> is up <span class="er">(</span><span class="ex">0.000069s</span> latency<span class="kw">)</span><span class="bu">.</span></span>
+<span id="cb2-4"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">MAC</span> Address: 8E:A5:7C:5D:D2:72 <span class="er">(</span><span class="ex">Unknown</span><span class="kw">)</span></span>
+<span id="cb2-5"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> scan report for ch3-target-web.ch3-labnet <span class="er">(</span><span class="ex">10.250.250.20</span><span class="kw">)</span></span>
+<span id="cb2-6"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host</span> is up <span class="er">(</span><span class="ex">0.000044s</span> latency<span class="kw">)</span><span class="bu">.</span></span>
+<span id="cb2-7"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">MAC</span> Address: CE:7B:C5:CA:CF:D2 <span class="er">(</span><span class="ex">Unknown</span><span class="kw">)</span></span>
+<span id="cb2-8"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> scan report for ch3-target-closed.ch3-labnet <span class="er">(</span><span class="ex">10.250.250.30</span><span class="kw">)</span></span>
+<span id="cb2-9"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host</span> is up <span class="er">(</span><span class="ex">0.000068s</span> latency<span class="kw">)</span><span class="bu">.</span></span>
+<span id="cb2-10"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">MAC</span> Address: 66:D4:A3:1A:05:D6 <span class="er">(</span><span class="ex">Unknown</span><span class="kw">)</span></span>
+<span id="cb2-11"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> scan report for d850413e063a <span class="er">(</span><span class="ex">10.250.250.10</span><span class="kw">)</span></span>
+<span id="cb2-12"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host</span> is up.</span>
+<span id="cb2-13"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> done: 256 IP addresses <span class="er">(</span><span class="ex">4</span> hosts up<span class="kw">)</span> <span class="ex">scanned</span> in 4.54 seconds</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li><code>-sn</code>は、ポートスキャンを行わず、ホスト発見だけを行う。</li>
-<li>これはPing Scanと呼ばれるが、ICMP Echo Requestだけを送るとは限らない。</li>
+<li><code>-sn</code>（Ping Scan）はポートスキャンせず、ホスト発見だけを行う。</li>
 </ul>
 </section>
 <section id="pingとの違い" class="slide level2">
-<h2><code>ping</code>との違い</h2>
+<h2>pingとの違い</h2>
 <ul>
-<li><code>ping</code>は、通常ICMP Echo Request / Echo Replyを使う。</li>
-<li>一方、<code>nmap -sn</code>は状況に応じて複数の手法を使う。
+<li><code>ping</code>は、ICMP Echo Request / Echo Replyを使う。</li>
+<li><code>nmap -sn</code>は状況に応じて複数の手法を使う。
 <ul>
-<li>同一セグメントのIPv4ではARPが優先される。</li>
-<li>それ以外ではICMPやTCPプローブが使われる。</li>
+<li>同一セグメント上のIPv4アドレスのスキャンではARPが使用。</li>
+<li>それ以外では、ICMP Echo Request、ICMP Timestamp Request、TCP SYN（443/tcp）、TCP ACK（80/tcp）</li>
 </ul></li>
-<li>同じ「死活確認」でも、送っているパケットは同じではない。</li>
-</ul>
-</section>
-<section id="rootとnon-root" class="slide level2">
-<h2>rootとnon-root</h2>
+<li>ただし、複数手法が使えるのはrootでの実行時のみ。
 <ul>
-<li><code>nmap</code>は実行権限によって挙動が変わる。</li>
-<li>rootで実行すると、raw packetを使ったスキャンができる。</li>
-<li>non-rootでは制約が大きく、<code>connect()</code>ベースの手法に寄る。</li>
-<li>実運用では、この違いを意識しないと結果を読み違える。</li>
+<li>non-rootでは、<code>connect()</code>を使った443/tcpの死活確認。</li>
+<li>nmapはroot権限で実行することが大切。</li>
+</ul></li>
+<li>応答がないからといって、ホストがないとは限らない。（フィルターされている可能性。）</li>
 </ul>
 </section>
 <section id="ポートスキャン" class="slide level2">
@@ -407,112 +422,180 @@ Shintaro Watanabe
 <ul>
 <li>ホストが見つかったら、どのポートが開いているかを見る。</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">PORT</span>   STATE SERVICE</span>
-<span id="cb3-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">80/tcp</span> open  http</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-Pn</span> <span class="at">-n</span> target-web <span class="at">-p</span> 80,443</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li><code>open</code>: 対象ポートで待ち受けしているプロセスがある</li>
-<li><code>closed</code>: 対象ホストには到達できるが、待ち受けはない</li>
-<li><code>filtered</code>: 応答が返ってこないため、openかclosedかを判定できない</li>
+<li><code>-Pn</code>: 死活確認をせずにスキャンを実施する</li>
+<li><code>-n</code>: 名前解決をしない</li>
+<li><code>-p</code>: 指定ポート（既定ではネットで高露出の1,000ポート）</li>
+</ul>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-v</span> <span class="st">'^#'</span> /usr/share/nmap/nmap-services <span class="kw">|</span> <span class="fu">sort</span> <span class="at">-k3,3nr</span> <span class="kw">|</span> <span class="fu">head</span> <span class="at">-n</span> 5</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">http</span>    80/tcp  0.484143        <span class="co"># World Wide Web HTTP</span></span>
+<span id="cb5-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">ipp</span>     631/udp 0.450281        <span class="co"># Internet Printing Protocol</span></span>
+<span id="cb5-3"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">snmp</span>    161/udp 0.433467        <span class="co"># Simple Net Mgmt Proto</span></span>
+<span id="cb5-4"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">netbios-ns</span>      137/udp 0.365163        <span class="co"># NETBIOS Name Service</span></span>
+<span id="cb5-5"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">ntp</span>     123/udp 0.330879        <span class="co"># Network Time Protocol</span></span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="結果を吟味する" class="slide level2">
+<h2>結果を吟味する</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb6-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Starting</span> Nmap 7.94SVN <span class="er">(</span> <span class="ex">https://nmap.org</span> <span class="kw">)</span> <span class="ex">at</span> 2026-03-04 14:34 UTC</span>
+<span id="cb6-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> scan report for target-web <span class="er">(</span><span class="ex">10.250.250.20</span><span class="kw">)</span></span>
+<span id="cb6-3"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host</span> is up <span class="er">(</span><span class="ex">0.000053s</span> latency<span class="kw">)</span><span class="bu">.</span></span>
+<span id="cb6-4"><a href="" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">PORT</span>    STATE  SERVICE</span>
+<span id="cb6-6"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">80/tcp</span>  open   http</span>
+<span id="cb6-7"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">443/tcp</span> closed https</span>
+<span id="cb6-8"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">MAC</span> Address: CE:7B:C5:CA:CF:D2 <span class="er">(</span><span class="ex">Unknown</span><span class="kw">)</span></span>
+<span id="cb6-9"><a href="" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> done: 1 IP address <span class="er">(</span><span class="ex">1</span> host up<span class="kw">)</span> <span class="ex">scanned</span> in 0.18 seconds</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><code>open</code>: 対象ポートで待ち受けしているプロセスがある（SYN/ACK）。</li>
+<li><code>closed</code>: 対象ホストには到達できるが、待ち受けはない（RST）。</li>
+<li><code>filtered</code>: 無応答（またはICMP Unreachable）。</li>
 </ul>
 </section>
-<section id="デフォルトでは何ポート見るのか" class="slide level2">
-<h2>デフォルトでは何ポート見るのか</h2>
+<section id="synスキャン-ssとコネクトスキャン-st" class="slide level2">
+<h2>SYNスキャン（<code>-sS</code>）とコネクトスキャン（<code>-sT</code>）</h2>
 <ul>
-<li><code>nmap target-web</code>のようにポートを指定しない場合、全65535ポートを調べるわけではない。</li>
-<li>デフォルトでは、使用頻度の高い1000個のTCPポートが対象になる。</li>
-<li>したがって、非標準ポートのサービスは見落とすことがある。</li>
-</ul>
-</section>
-<section id="ssと-st" class="slide level2">
-<h2><code>-sS</code>と<code>-sT</code></h2>
-<ul>
-<li>rootでのデフォルトは<code>-sS</code>。
-<ul>
-<li>SYNを送り、接続確立前の応答を見る。</li>
-</ul></li>
 <li>non-rootでのデフォルトは<code>-sT</code>。
 <ul>
 <li>OSの通常ソケットAPIで接続する。</li>
 </ul></li>
-</ul>
-</section>
-<section id="なぜ-ssが好まれるのか" class="slide level2">
-<h2>なぜ<code>-sS</code>が好まれるのか</h2>
+<li>rootでのデフォルトは<code>-sS</code>。
 <ul>
-<li><code>-sT</code>は完全なTCP接続を張る。</li>
-<li><code>-sS</code>は、接続確立前の応答だけを見て判定する。</li>
-<li>そのため、<code>-sS</code>はスキャン用途に向いている。
-<ul>
-<li>より効率的</li>
-<li>接続確立前の段階で状態を見られる</li>
+<li>SYNを送り、接続が確立する前に応答を見る（ACKを投げない）。</li>
+<li>より効率的で、先方のログにも残りにくい。</li>
 </ul></li>
 </ul>
 </section>
-<section id="saで何が分かるか" class="slide level2">
-<h2><code>-sA</code>で何が分かるか</h2>
+<section id="ackスキャン-sa" class="slide level2">
+<h2>ACKスキャン（<code>-sA</code>）</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-Pn</span> <span class="at">-n</span> target-web <span class="at">-sA</span> <span class="at">-p</span> 80,443</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb8-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">PORT</span>    STATE      SERVICE</span>
+<span id="cb8-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">80/tcp</span>  unfiltered http</span>
+<span id="cb8-3"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">443/tcp</span> unfiltered https</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li><code>-sA</code>はACK scanである。</li>
-<li>これは「開いているか」を見るスキャンではない。</li>
-<li>主に、フィルタリングの有無を見る。</li>
-<li>結果として出てくる代表例:
+<li>ファイアウォールによるフィルタリングの有無を確認している。</li>
+<li>フィルターされていない場合、RSTが返ってくる。</li>
+</ul>
+</section>
+<section id="バージョンスキャン-svとosスキャン-o" class="slide level2">
+<h2>バージョンスキャン（<code>-sV</code>）とOSスキャン（<code>-O</code>）</h2>
 <ul>
-<li><code>unfiltered</code></li>
-<li><code>filtered</code></li>
+<li>既定のSERVICE名は、<code>nmap-services</code>データベースに依拠。
+<ul>
+<li>本当にそのサービスが起動しているとは限らない。</li>
 </ul></li>
 </ul>
-</section>
-<section id="pnはいつ使うか" class="slide level2">
-<h2><code>-Pn</code>はいつ使うか</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-Pn</span> <span class="at">-p</span> 18000 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">PORT</span>      STATE SERVICE</span>
+<span id="cb10-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">18000/tcp</span> open  biimenu</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li>通常、<code>nmap</code>はホスト発見を先に行う。</li>
-<li>その段階で応答がなければ、ポートスキャンに進まないことがある。</li>
-<li><code>-Pn</code>は、「ホストは起動しているもの」と仮定して調査を続けるオプション。</li>
-<li>例えば、非標準ポートだけでサービスが動いている場合に重要になる。</li>
+<li><code>-sV</code>を付けるとL7レベルで検証パケットを送り、サービスやバージョンを推測する。</li>
+</ul>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-sV</span> <span class="at">-Pn</span> <span class="at">-p</span> 18000 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">PORT</span>      STATE SERVICE VERSION</span>
+<span id="cb12-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">18000/tcp</span> open  http    nginx 1.29.5</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><code>-sO</code>はL3/L4レベルで検証パケットを送り、ホストのOSを推測する。</li>
 </ul>
 </section>
-<section id="svと-o" class="slide level2">
-<h2><code>-sV</code>と<code>-O</code></h2>
+<section id="スクリプトスキャン--script" class="slide level2">
+<h2>スクリプトスキャン（<code>--script</code>）</h2>
 <ul>
-<li><code>-sV</code>
-<ul>
-<li>サービスやバージョンを推定する</li>
-</ul></li>
-<li><code>-O</code>
-<ul>
-<li>TCP/IP応答の特徴からOSを推定する</li>
-</ul></li>
+<li>サービス詳細調査、脆弱性検査、設定確認、情報収集などを自動化するスクリプト が<code>/usr/share/nmap/scripts/*.nse</code>として同梱。</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-sV</span> <span class="at">-p</span> 18000 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-Pn</span> <span class="at">-sV</span> <span class="at">-p</span> 80 <span class="at">--script</span> http-methods target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb14-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">80/tcp</span> open  http    nginx 1.29.5</span>
+<span id="cb14-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span> <span class="ex">http-methods:</span></span>
+<span id="cb14-3"><a href="" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span><span class="ex">_</span>  Supported Methods: GET HEAD</span>
+<span id="cb14-4"><a href="" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span><span class="ex">_http-server-header:</span> nginx/1.29.5</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li><code>SERVICE</code>列は、まずポート番号にもとづく推定である。</li>
-<li><code>-sV</code>を付けると、実際の応答内容からより正確に推定する。</li>
+<li><code>-sV</code>オプションと合わせて使うことが多い（実際のサービスがわかるから）</li>
+<li>デフォルトのUserAgentには「Nmap」の文言が入り、アラートが出るかもしれない。 <code>--script-args http.useragent=...</code>でUserAgentを変えると回避できることがある。</li>
 </ul>
 </section>
-<section id="スクリプトスキャン" class="slide level2">
-<h2>スクリプトスキャン</h2>
+<section id="http系スクリプトの例" class="slide level2">
+<h2>HTTP系スクリプトの例</h2>
 <ul>
-<li><code>--script</code>を使うと、ポートやサービスの先にあるアプリケーション層を追加調査できる。</li>
-<li>今回はHTTP系を扱う。</li>
+<li>HTTPで代表的なスクリプトを紹介する。</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-p</span> 80 <span class="at">--script</span> http-title,http-headers,http-server-header target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
-<ul>
-<li><code>http-title</code>: タイトルを見る</li>
-<li><code>http-headers</code>: レスポンスヘッダーを見る</li>
-<li><code>http-server-header</code>: <code>Server</code>ヘッダーを見る</li>
-<li><code>http-enum</code>: よく使われる公開パスを列挙する</li>
-<li><code>http-auth</code>: 認証方式を調べる</li>
-</ul>
+<table class="caption-top">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>スクリプト名</th>
+<th>分かること</th>
+<th>補足</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>http-title</td>
+<td>Web ページの <code>&lt;title&gt;</code></td>
+<td>サービス識別の第一歩</td>
+</tr>
+<tr class="even">
+<td>http-headers</td>
+<td>Server ヘッダ、各種セキュリティヘッダ</td>
+<td>実装・設定の概要把握</td>
+</tr>
+<tr class="odd">
+<td>http-server-header</td>
+<td>Server ヘッダの明示取得</td>
+<td>http-headers の補助的役割</td>
+</tr>
+<tr class="even">
+<td>http-robots.txt</td>
+<td>robots.txt の内容</td>
+<td>管理パスの手がかりになる場合あり</td>
+</tr>
+<tr class="odd">
+<td>http-methods</td>
+<td>許可されている HTTP メソッド</td>
+<td>PUT / DELETE / TRACE に注意</td>
+</tr>
+<tr class="even">
+<td>http-auth</td>
+<td>Basic / Digest / NTLM 等の認証方式</td>
+<td>認証方式の妥当性確認</td>
+</tr>
+<tr class="odd">
+<td>http-security-headers</td>
+<td>HSTS / CSP / XFO 等の有無</td>
+<td>セキュリティ設定評価</td>
+</tr>
+<tr class="even">
+<td>http-enum</td>
+<td>管理画面や既知パスの存在</td>
+<td>やや侵入的、要利用許可</td>
+</tr>
+<tr class="odd">
+<td>http-vuln-*</td>
+<td>特定 CVE の該当有無</td>
+<td>明確に侵入的、診断用途</td>
+</tr>
+</tbody>
+</table>
 </section>
-<section id="結果の保存" class="slide level2">
-<h2>結果の保存</h2>
+<section id="結果の保存-on" class="slide level2">
+<h2>結果の保存（<code>-oN</code>）</h2>
 <ul>
-<li><code>nmap</code>の結果は後で見返せるように保存できる。</li>
+<li><code>nmap</code>の結果は後で見返せるよう保存できる。</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb6-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-sV</span> <span class="at">-p</span> 80 target-web <span class="at">-oN</span> result.txt</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">nmap</span> <span class="at">-sV</span> <span class="at">-p</span> 80 target-web <span class="at">-oA</span> result</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb15-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-Pn</span> <span class="at">-sV</span> <span class="at">-p</span> 80 target-web <span class="at">-oG</span> result.txt</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb16-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host:</span> 10.250.250.20 <span class="er">(</span><span class="ex">ch3-target-web.ch3-labnet</span><span class="kw">)</span> <span class="ex">Status:</span> Up</span>
+<span id="cb16-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">Host:</span> 10.250.250.20 <span class="er">(</span><span class="ex">ch3-target-web.ch3-labnet</span><span class="kw">)</span> <span class="ex">Ports:</span> 80/open/tcp//http//nginx 1.29.5/</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li><code>-oN</code>: 通常のテキスト形式</li>
+<li><code>-oN</code>: 標準出力の結果に近いテキスト形式</li>
+<li><code>-oX</code>: XML形式</li>
+<li><code>-oG</code>: grep/sed/awk向けの簡易テキスト形式</li>
+</ul>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb17-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> nmap <span class="at">-Pn</span> <span class="at">-sV</span> <span class="at">-p</span> 80 target-web <span class="at">-oA</span> result</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
 <li><code>-oA</code>: <code>.nmap</code>, <code>.xml</code>, <code>.gnmap</code> をまとめて出力</li>
 </ul>
 </section></section>
@@ -553,21 +636,35 @@ Shintaro Watanabe
 </section>
 <section id="synを送る" class="slide level2">
 <h2>SYNを送る</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb8-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-S</span> <span class="at">-p</span> 80 <span class="at">-c</span> 3 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb18-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-S</span> <span class="at">-p</span> 80 <span class="at">-c</span> 3 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb19-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">HPING</span> target-web <span class="er">(</span><span class="ex">eth0</span> 10.250.250.20<span class="kw">)</span><span class="bu">:</span> S set, 40 headers + 0 data bytes</span>
+<span id="cb19-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="va">len</span><span class="op">=</span>44 <span class="va">ip</span><span class="op">=</span>10.250.250.20 <span class="va">ttl</span><span class="op">=</span>64 <span class="ex">DF</span> id=0 sport=80 flags=SA seq=0 win=64240 rtt=6.3 ms</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><code>-S</code>: SYNフラグ</li>
 <li><code>-p</code>: 宛先ポート</li>
 <li><code>-c</code>: 送信回数</li>
 <li>ポートが開いていれば、通常SYN/ACKが返る。</li>
 </ul>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb20-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">tcpdump</span> <span class="at">-n</span> <span class="at">-i</span> eth0 <span class="st">'host target-web and tcp'</span></span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb21-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">14:56:55.081980</span> IP 10.250.250.10.40000 <span class="op">&gt;</span> 10.250.250.20.80: Flags <span class="pp">[</span><span class="ss">S</span><span class="pp">]</span>, seq 1926046387, win 512, length 0</span>
+<span id="cb21-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">14:56:55.082035</span> IP 10.250.250.20.80 <span class="op">&gt;</span> 10.250.250.10.40000: Flags <span class="pp">[</span><span class="ss">S.</span><span class="pp">]</span>, seq 3080780592, ack 1926046388, win 64240, options [mss 1460], length 0</span>
+<span id="cb21-3"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">14:56:55.082043</span> IP 10.250.250.10.40000 <span class="op">&gt;</span> 10.250.250.20.80: Flags <span class="pp">[</span><span class="ss">R</span><span class="pp">]</span>, seq 1926046388, win 0, length 0</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><code>hping3</code>は通常の接続手順を使わずにSYNを送るため、OSはSYN/ACKを待っていない。結果としてOSがRSTで拒否する。</li>
+</ul>
 </section>
 <section id="ackやfinを送る" class="slide level2">
 <h2>ACKやFINを送る</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-A</span> <span class="at">-p</span> 80 <span class="at">-c</span> 3 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-F</span> <span class="at">-p</span> 80 <span class="at">-c</span> 3 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb22-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-A</span> <span class="at">-p</span> 80 <span class="at">-c</span> 3 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb23-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">14:58:13.947661</span> IP 10.250.250.10.40001 <span class="op">&gt;</span> 10.250.250.20.80: Flags <span class="pp">[</span><span class="ss">.</span><span class="pp">]</span>, ack 567889971, win 512, length 0</span>
+<span id="cb23-2"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">14:58:13.947704</span> IP 10.250.250.20.80 <span class="op">&gt;</span> 10.250.250.10.40001: Flags <span class="pp">[</span><span class="ss">R</span><span class="pp">]</span>, seq 567889971, win 0, length 0</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>既存接続が無い状態でACKだけを送ると、通常はRSTが返る。</li>
-<li>FINだけを送っても、今回のような環境ではRSTが返ることが多い。</li>
+</ul>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb24-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-F</span> <span class="at">-p</span> 80 <span class="at">-c</span> 3 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb25-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">14:59:17.328783</span> IP 10.250.250.10.40002 <span class="op">&gt;</span> 10.250.250.20.80: Flags <span class="pp">[</span><span class="ss">F</span><span class="pp">]</span>, seq 1677856718, win 512, length 0</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li>FINだけを送った場合、この環境では返答が確認できないことがある。</li>
 </ul>
 </section>
 <section id="tcp以外にも使える" class="slide level2">
@@ -575,11 +672,11 @@ Shintaro Watanabe
 <ul>
 <li>ICMPモード</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-1</span> target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb26-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-1</span> target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>UDPモード</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-2</span> <span class="at">-p</span> 53 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb27-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-2</span> <span class="at">-p</span> 53 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><code>hping3</code>はTCP専用ツールではない。</li>
 <li>プロトコルを切り替えながら疎通確認や挙動確認ができる。</li>
@@ -590,87 +687,52 @@ Shintaro Watanabe
 <ul>
 <li>送信元ポート</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-S</span> <span class="at">-s</span> 40000 <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb28-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-S</span> <span class="at">-s</span> 40000 <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>送信元IPの偽装</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb14-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-a</span> 192.0.2.123 <span class="at">-S</span> <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb29-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-a</span> 192.0.2.123 <span class="at">-S</span> <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>TTLの変更</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb15-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-S</span> <span class="at">-t</span> 5 <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb30-1"><a href="" aria-hidden="true" tabindex="-1"></a><span class="ex">hping3</span> <span class="at">-S</span> <span class="at">-t</span> 5 <span class="at">-p</span> 80 target-web</span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>ただし、送信元IPを偽装すると返答はその偽装先へ返るため、通常は自分で応答観察できない。</li>
 </ul>
 </section>
-<section id="tcpdumpと併用する" class="slide level2">
-<h2><code>tcpdump</code>と併用する</h2>
+<section id="drdosの原理反射増幅" class="slide level2">
+<h2>DRDoSの原理（反射・増幅）</h2>
 <ul>
-<li><code>hping3</code>だけでも応答は分かる。</li>
-<li>しかし、理解が深まるのは<code>tcpdump</code>と並べたときである。</li>
-<li>見るべきもの:
+<li>攻撃者が送信元IPを被害者に偽装して公開サーバーへリクエストを送る。</li>
+<li>公開サーバーは偽装に気づかず、被害者に応答を返す。
 <ul>
-<li>こちらが送ったフラグ</li>
-<li>相手が返したフラグ</li>
-<li><code>S</code>, <code>S.</code>, <code>R</code> の対応関係</li>
+<li>応答が大きいサービス（DNS、NTPなど）ほど増幅が起きる。</li>
 </ul></li>
 </ul>
-</section>
-<section id="実務上のイメージ" class="slide level2">
-<h2>実務上のイメージ</h2>
-<ul>
-<li>ICMP Echo Requestが社内で止められていることは珍しくない。</li>
-<li>それでも、<code>443/tcp</code>へSYNを送れば、疎通確認できる場面がある。</li>
-<li>つまり、<code>hping3</code>は教材用の道具ではなく、調査の引き出しでもある。</li>
-</ul>
-</section></section>
-<section>
-<section id="演習との接続" class="title-slide slide level1 center">
-<h1>演習との接続</h1>
+<div class="cell" data-reveal="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class=""><p></p>
+<div>
+<pre class="mermaid mermaid-js">sequenceDiagram
+    participant Attacker as 攻撃者
+    participant R1 as 公開サーバー1
+    participant R2 as 公開サーバー2
+    participant R3 as 公開サーバー3
+    participant Victim as 被害者
 
-</section>
-<section id="今回の演習で扱う範囲" class="slide level2">
-<h2>今回の演習で扱う範囲</h2>
-<ul>
-<li>講義では、<code>nmap</code>と<code>hping3</code>の全体像を見た。</li>
-<li>演習では、そのうち主要なものを実際に確かめる。</li>
-<li>特に扱うのは次の範囲である。
-<ul>
-<li><code>-sn</code>とARP</li>
-<li><code>-sS</code>, <code>-sT</code>, <code>-sA</code></li>
-<li><code>-sV</code>, <code>--script</code></li>
-<li><code>http-enum</code>, <code>http-auth</code></li>
-<li><code>hping3</code>のSYN/ACK/FIN</li>
-<li><code>tcpdump</code>との対応</li>
-</ul></li>
-</ul>
-</section>
-<section id="演習ラボ" class="slide level2">
-<h2>演習ラボ</h2>
-<ul>
-<li>スキャン先は外部ネットワークではない。</li>
-<li>Dockerの閉じたネットワークで実験する。</li>
-<li>主な登場人物:
-<ul>
-<li><code>scanner</code>: <code>nmap</code>, <code>hping3</code>, <code>tcpdump</code>, <code>curl</code>, <code>nc</code></li>
-<li><code>target-web</code>: HTTP応答あり</li>
-<li><code>target-closed</code>: 待ち受けなし</li>
-</ul></li>
-</ul>
-</section></section>
-<section>
-<section id="まとめ" class="title-slide slide level1 center">
-<h1>まとめ</h1>
-
-</section>
-<section id="今日のまとめ" class="slide level2">
-<h2>今日のまとめ</h2>
-<ul>
-<li>Ch.3では、観察から操作へ進んだ。</li>
-<li><code>nmap</code>は、ホスト発見からアプリケーション調査までを自動化する道具である。</li>
-<li><code>hping3</code>は、パケットそのものを自分で作って送る道具である。</li>
-<li>この2つを使うことで、ネットワーク障害の切り分け方が一段深くなる。</li>
-</ul>
+    Attacker-&gt;&gt;R1: 送信元IPを偽装したリクエスト
+    Attacker-&gt;&gt;R2: 送信元IPを偽装したリクエスト
+    Attacker-&gt;&gt;R3: 送信元IPを偽装したリクエスト
+    R1--&gt;&gt;Victim: 反射された応答（増幅）
+    R2--&gt;&gt;Victim: 反射された応答（増幅）
+    R3--&gt;&gt;Victim: 反射された応答（増幅）
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
 
 </section></section>
     </div>
